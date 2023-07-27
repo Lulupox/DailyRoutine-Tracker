@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Dashboard - Gestion des Tâches Quotidiennes</title>
+    <!-- Inclure les fichiers CSS de Bootstrap pour le design responsive -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <style>
+        body {
+            background-color: #222;
+            color: #fff;
+            font-family: Arial, sans-serif;
+        }
+
+        .dashboard-theme {
+            background-color: #111;
+            padding: 20px;
+        }
+
+        .dashboard-theme h1, .dashboard-theme h2, .dashboard-theme h3, .dashboard-theme h4, .dashboard-theme h5, .dashboard-theme h6 {
+            color: #00ffcc;
+        }
+
+        .dashboard-theme .form-control {
+            background-color: #333;
+            color: #fff;
+        }
+
+        .dashboard-theme .btn-primary {
+            background-color: #00ffcc;
+            border-color: #00ffcc;
+        }
+
+        /* Styles spécifiques pour la graphique */
+        .dashboard-theme #dailyScoreChart {
+            border: 1px solid #00ffcc;
+        }
+
+        /* Styles spécifiques pour la version mobile */
+        @media screen and (max-width: 767px) {
+            .dashboard-theme {
+                padding: 10px;
+            }
+
+            .dashboard-theme .col-md-4 {
+                margin-bottom: 10px;
+            }
+
+            .dashboard-theme .row {
+                flex-direction: column;
+            }
+
+            .dashboard-theme #dailyScoreChart {
+                width: 100%;
+                max-width: 500px;
+                margin: 10px auto;
+            }
+        }
+    </style>
+</head>
+<body class="dashboard-theme">
+    <div class="container">
+        <h1>Dashboard - Gestion des Tâches Quotidiennes</h1>
+
+        <div class="row">
+            <div class="col-md-4">
+                <h2>Ajouter une nouvelle tâche :</h2>
+                <input type="text" id="taskName" class="form-control" placeholder="Nom de la tâche">
+                <button id="addTaskBtn" class="btn btn-primary mt-2">Ajouter</button>
+            </div>
+
+            <div class="col-md-8">
+                <h2>Liste des tâches :</h2>
+                <ul id="taskList">
+                </ul>
+            </div>
+        </div>
+
+        <!-- Div pour afficher le graphique -->
+        <div class="row mt-4">
+            <div class="col-md-12">
+                <h2>Graphique des Daily Scores :</h2>
+                <canvas id="dailyScoreChart" width="400" height="200"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Inclure la bibliothèque Moment.js depuis le CDN externe -->
+<script src="https://cdn.jsdelivr.net/npm/moment@2.29.1/moment.min.js"></script>
+
+<!-- Inclure la bibliothèque Chart.js depuis le CDN externe -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-moment@1.0.1/dist/chartjs-adapter-moment.min.js"></script>
+
+    <script>
+        // Fonction pour charger la liste des tâches depuis l'API
+        function loadTasks() {
+            fetch('http://127.0.0.1:8000/tasks')
+                .then(response => response.json())
+                .then(data => {
+                    const taskList = document.getElementById('taskList');
+                    taskList.innerHTML = "";
+
+                    data.forEach(task => {
+                        const listItem = document.createElement('li');
+
+                        const checkbox = document.createElement('input');
+                        checkbox.type = 'checkbox';
+                        checkbox.checked = task.is_done;
+                        checkbox.addEventListener('change', () => {
+                            checkTask(task.id, checkbox.checked);
+                        });
+
+                        const taskName = document.createTextNode(task.task_name);
+
+                        const deleteBtn = document.createElement('button');
+                        deleteBtn.textContent = 'Supprimer';
+                        deleteBtn.addEventListener('click', () => {
+                            deleteTask(task.id);
+                        });
+
+                        listItem.appendChild(checkbox);
+                        listItem.appendChild(taskName);
+                        listItem.appendChild(deleteBtn);
+
+                        taskList.appendChild(listItem);
+                    });
+                })
+                .catch(error => {
+                    console.error('Erreur lors du chargement des tâches:', error);
+                });
+        }
+
+        // Fonction pour ajouter une nouvelle tâche via l'API
+        function addTask() {
+            const taskName = document.getElementById('taskName').value.trim();
+            if (taskName === "") {
+                alert("Veuillez entrer un nom de tâche valide.");
+                return;
+            }
+
+            fetch('http://127.0.0.1:8000/tasks', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ "task_name": taskName })
+            })
+            .then(() => {
+                loadTasks();
+                document.getElementById('taskName').value = "";
+            })
+            .catch(error => {
+                console.error('Erreur lors de l\'ajout de la tâche:', error);
+            });
+        }
+
+        // Fonction pour supprimer une tâche via l'API
+        function deleteTask(taskId) {
+            fetch(`http://127.0.0.1:8000/tasks/${taskId}`, {
+                method: 'DELETE'
+            })
+            .then(() => {
+                loadTasks();
+            })
+            .catch(error => {
+                console.error('Erreur lors de la suppression de la tâche:', error);
+            });
+        }
+
+        // Fonction pour cocher une tâche comme terminée via l'API
+        function checkTask(taskId, isDone) {
+            fetch(`http://127.0.0.1:8000/tasks/${taskId}`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ "is_done": isDone })
+            })
+            .then(() => {
+                loadTasks();
+                loadDailyScores();
+            })
+            .catch(error => {
+                console.error('Erreur lors de la mise à jour de la tâche:', error);
+            });
+        }
+
+        let myChart = null; // Variable pour stocker l'instance du graphique
+
+        // Fonction pour charger les scores quotidiens depuis l'API et afficher le graphique
+        function loadDailyScores() {
+            fetch('http://127.0.0.1:8000/daily_scores')
+                .then(response => response.json())
+                .then(data => {
+                    const dates = [];
+                    const scores = [];
+
+                    // Trie les données par date
+                    data.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+                    data.forEach(scoreData => {
+                        dates.push(moment(scoreData.date).format('YYYY-MM-DD')); // Utilisation du plugin moment.js pour formater la date
+                        scores.push(scoreData.score);
+                    });
+
+                    // Détruire l'ancien graphique s'il existe
+                    if (myChart) {
+                        myChart.destroy();
+                    }
+
+                    // Crée le graphique avec Chart.js
+                    const ctx = document.getElementById('dailyScoreChart').getContext('2d');
+                    myChart = new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: dates,
+                            datasets: [{
+                                label: 'Daily Score',
+                                borderColor: 'blue',
+                                data: scores,
+                                fill: false
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            scales: {
+                                x: {
+                                    type: 'time',
+                                    time: {
+                                        unit: 'day', // Utilisation du plugin "chartjs-adapter-moment" pour définir l'unité de temps
+                                        displayFormats: {
+                                            day: 'YYYY-MM-DD'
+                                        }
+                                    }
+                                },
+                                y: {
+                                    min: 0,
+                                    stepSize: 1
+                                }
+                            }
+                        }
+                    });
+                })
+                .catch(error => {
+                    console.error('Erreur lors du chargement des scores quotidiens:', error);
+                });
+        }
+
+        // Charger la liste des tâches et les scores quotidiens au chargement de la page
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('addTaskBtn').addEventListener('click', addTask);
+            loadTasks();
+            loadDailyScores();
+        });
+    </script>
+</body>
+</html>
